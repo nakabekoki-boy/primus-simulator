@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>飲食店 収益シミュレーター</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f7f5f0; --surface: #ffffff; --surface2: #f0ede6;
+    --border: rgba(0,0,0,0.1); --text: #1a1a18; --text-muted: #7a7870;
+    --accent: #2d6a4f; --warn: #b5631a; --danger: #c0392b;
+    --radius: 10px; --font: 'Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16160f; --surface:#1f1f17; --surface2:#2a2a20; --border:rgba(255,255,255,0.1); --text:#f0ede6; --text-muted:#8a8880; --accent:#52b788; }
+  }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px; line-height:1.6; min-height:100vh; }
+  header { background:var(--surface); border-bottom:1px solid var(--border); padding:16px 24px; position:sticky; top:0; z-index:10; display:flex; align-items:center; justify-content:space-between; }
+  .logo { font-size:13px; font-weight:600; letter-spacing:0.12em; color:var(--text-muted); text-transform:uppercase; }
+  .logo span { color:var(--accent); }
+  .header-tag { font-size:11px; color:var(--text-muted); letter-spacing:0.08em; }
+  .container { max-width:780px; margin:0 auto; padding:24px 16px 80px; }
+  .metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:24px; }
+  @media(max-width:500px){ .metrics{grid-template-columns:repeat(2,1fr);} }
+  .metric { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; }
+  .metric-label { font-size:11px; color:var(--text-muted); letter-spacing:0.06em; margin-bottom:6px; }
+  .metric-val { font-size:18px; font-weight:600; color:var(--text); line-height:1.2; }
+  .metric-sub { font-size:12px; color:var(--text-muted); font-weight:400; margin-left:3px; }
+  .good { color:var(--accent)!important; } .warn { color:var(--warn)!important; } .bad { color:var(--danger)!important; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:12px; }
+  .card-title { font-size:11px; letter-spacing:0.1em; color:var(--text-muted); text-transform:uppercase; margin-bottom:16px; padding-bottom:10px; border-bottom:1px solid var(--border); }
+  .simple-row { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .simple-label { font-size:13px; color:var(--text-muted); min-width:140px; flex-shrink:0; }
+  .simple-val { font-size:13px; font-weight:600; min-width:80px; text-align:right; color:var(--text); flex-shrink:0; }
+  .slider-block { margin-bottom:14px; }
+  .slider-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; gap:8px; }
+  .slider-name { font-size:13px; color:var(--text-muted); flex-shrink:0; }
+  .dual-val { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  .val-box { display:flex; align-items:center; gap:3px; }
+  .val-box input[type=number] { width:86px; font-size:13px; font-weight:600; border:1px solid var(--border); border-radius:6px; padding:4px 7px; background:var(--surface2); color:var(--text); text-align:right; font-family:var(--font); -moz-appearance:textfield; }
+  .val-box input[type=number]::-webkit-inner-spin-button, .val-box input[type=number]::-webkit-outer-spin-button { opacity:1; }
+  .val-box input[type=number]:focus { outline:none; border-color:var(--accent); }
+  .val-box input[readonly] { color:var(--text-muted); background:var(--bg); }
+  .unit { font-size:12px; color:var(--text-muted); }
+  .val-sep { font-size:12px; color:var(--border); }
+  input[type=range] { width:100%; height:4px; -webkit-appearance:none; appearance:none; background:var(--surface2); border-radius:2px; outline:none; cursor:pointer; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:var(--accent); border:2px solid var(--surface); box-shadow:0 1px 4px rgba(0,0,0,0.2); cursor:pointer; }
+  input[type=range]::-moz-range-thumb { width:18px; height:18px; border-radius:50%; background:var(--accent); border:2px solid var(--surface); cursor:pointer; }
+  .chart-wrap { width:100%; overflow:visible; margin-top:8px; }
+  .chart-wrap svg { width:100%; display:block; }
+  .section-divider { font-size:11px; color:var(--text-muted); letter-spacing:0.08em; margin:20px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  footer { text-align:center; font-size:11px; color:var(--text-muted); padding:32px 16px; letter-spacing:0.06em; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">飲食店 <span>収益シミュレーター</span></div>
+  <div class="header-tag">PL ベース</div>
+</header>
+<div class="container">
+  <div class="metrics" id="metrics"></div>
+
+  <!-- 売上設定 -->
+  <div class="card">
+    <div class="card-title">売上設定</div>
+    <div class="simple-row">
+      <span class="simple-label">営業日数（月）</span>
+      <input type="range" id="days" min="1" max="31" step="1" value="22" style="flex:1;">
+      <span class="simple-val" id="days-out">22日</span>
+    </div>
+    <div class="simple-row">
+      <span class="simple-label">平日 客単価</span>
+      <input type="range" id="weekday-price" min="500" max="5000" step="100" value="1200" style="flex:1;">
+      <span class="simple-val" id="weekday-price-out">¥1,200</span>
+    </div>
+    <div class="simple-row">
+      <span class="simple-label">土日 客単価</span>
+      <input type="range" id="weekend-price" min="500" max="5000" step="100" value="1400" style="flex:1;">
+      <span class="simple-val" id="weekend-price-out">¥1,400</span>
+    </div>
+    <div class="simple-row">
+      <span class="simple-label">平日 来客数/日</span>
+      <input type="range" id="weekday-guests" min="1" max="100" step="1" value="18" style="flex:1;">
+      <span class="simple-val" id="weekday-guests-out">18人</span>
+    </div>
+    <div class="simple-row">
+      <span class="simple-label">土日 来客数/日</span>
+      <input type="range" id="weekend-guests" min="1" max="120" step="1" value="28" style="flex:1;">
+      <span class="simple-val" id="weekend-guests-out">28人</span>
+    </div>
+    <div class="simple-row">
+      <span class="simple-label">物販・その他 月売上</span>
+      <input type="range" id="retail" min="0" max="400000" step="5000" value="30000" style="flex:1;">
+      <span class="simple-val" id="retail-out">¥30,000</span>
+    </div>
+  </div>
+
+  <!-- コスト設定 -->
+  <div class="card">
+    <div class="card-title">コスト設定（金額 ↔ 率 連動）</div>
+
+    <div class="section-divider">売上原価</div>
+
+    <!-- 原価 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">原価</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="cogs-yen" value="0" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="cogs-pct" value="30" min="0" max="80" step="1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="cogs-pct-range" min="0" max="80" step="1" value="30">
+    </div>
+
+    <div class="section-divider">人件費</div>
+
+    <!-- 人件費 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">人件費</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="labor-yen" value="0" min="0" max="9999999" step="10000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="labor-pct" value="0" min="0" max="100" step="0.1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="labor-yen-range" min="0" max="600000" step="10000" value="0">
+    </div>
+
+    <div class="section-divider">固定費</div>
+
+    <!-- 地代家賃 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">地代家賃</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="rent-yen" value="100000" min="0" max="9999999" step="10000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="rent-pct" value="0" min="0" max="100" step="0.1" readonly><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="rent-yen-range" min="0" max="400000" step="10000" value="100000">
+    </div>
+
+    <!-- 保険料 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">保険料</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="insurance-yen" value="0" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="insurance-pct" value="0" min="0" max="100" step="0.1" readonly><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="insurance-yen-range" min="0" max="50000" step="1000" value="0">
+    </div>
+
+    <!-- リース料 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">リース料</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="lease-yen" value="0" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="lease-pct" value="0" min="0" max="100" step="0.1" readonly><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="lease-yen-range" min="0" max="100000" step="1000" value="0">
+    </div>
+
+    <!-- 減価償却費 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">減価償却費</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="depreciation-yen" value="0" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="depreciation-pct" value="0" min="0" max="100" step="0.1" readonly><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="depreciation-yen-range" min="0" max="200000" step="1000" value="0">
+    </div>
+
+    <div class="section-divider">変動費・その他販管費</div>
+
+    <!-- 水道光熱費 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">水道光熱費</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="utility-yen" value="20000" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="utility-pct" value="0" min="0" max="100" step="0.1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="utility-yen-range" min="0" max="160000" step="1000" value="20000">
+    </div>
+
+    <!-- 通信費 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">通信費</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="comm-yen" value="0" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="comm-pct" value="0" min="0" max="100" step="0.1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="comm-yen-range" min="0" max="50000" step="1000" value="0">
+    </div>
+
+    <!-- 広告費 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">広告費</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="ad-yen" value="10000" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="ad-pct" value="0" min="0" max="100" step="0.1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="ad-yen-range" min="0" max="200000" step="1000" value="10000">
+    </div>
+
+    <!-- 消耗品・備品費 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">消耗品・備品費</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="supplies-yen" value="8000" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="supplies-pct" value="0" min="0" max="100" step="0.1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="supplies-yen-range" min="0" max="100000" step="1000" value="8000">
+    </div>
+
+    <!-- 支払手数料 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">支払手数料</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="fee-yen" value="0" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="fee-pct" value="0" min="0" max="100" step="0.1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="fee-yen-range" min="0" max="100000" step="1000" value="0">
+    </div>
+
+    <!-- その他雑費 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">その他雑費（修繕費含）</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="misc-yen" value="0" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="misc-pct" value="0" min="0" max="100" step="0.1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="misc-yen-range" min="0" max="200000" step="1000" value="0">
+    </div>
+
+    <div class="section-divider">営業外費用</div>
+
+    <!-- 支払利息 -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">支払利息</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="interest-yen" value="0" min="0" max="9999999" step="1000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="interest-pct" value="0" min="0" max="100" step="0.1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="interest-yen-range" min="0" max="100000" step="1000" value="0">
+    </div>
+
+    <!-- 借入返済（元本） -->
+    <div class="slider-block">
+      <div class="slider-top">
+        <span class="slider-name">借入返済（元本）</span>
+        <div class="dual-val">
+          <div class="val-box"><input type="number" id="loan-yen" value="50000" min="0" max="9999999" step="5000"><span class="unit">円</span></div>
+          <span class="val-sep">/</span>
+          <div class="val-box"><input type="number" id="loan-pct" value="0" min="0" max="100" step="0.1"><span class="unit">%</span></div>
+        </div>
+      </div>
+      <input type="range" id="loan-yen-range" min="0" max="300000" step="5000" value="50000">
+    </div>
+  </div>
+
+  <!-- グラフ -->
+  <div class="card">
+    <div class="card-title">収益内訳</div>
+    <div class="chart-wrap">
+      <svg id="bar-chart" viewBox="0 0 700 280" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+  </div>
+</div>
+<footer>飲食店 収益シミュレーター — PLベース汎用版</footer>
+
+<script>
+  const fmt = v => Math.round(v).toLocaleString('ja-JP');
+  const pctFmt = v => parseFloat(v.toFixed(1));
+
+  function calcRev() {
+    const days = +document.getElementById('days').value;
+    const wdPrice = +document.getElementById('weekday-price').value;
+    const wePrice = +document.getElementById('weekend-price').value;
+    const wdGuests = +document.getElementById('weekday-guests').value;
+    const weGuests = +document.getElementById('weekend-guests').value;
+    const retail = +document.getElementById('retail').value;
+    const weekendDays = Math.round(days * 8 / 28);
+    const weekdayDays = days - weekendDays;
+    const drinkRev = weekdayDays * wdPrice * wdGuests + weekendDays * wePrice * weGuests;
+    return { drinkRev, retail, totalRev: drinkRev + retail, weekdayDays, weekendDays, wdGuests, weGuests };
+  }
+
+  // 原価：%基準（売上連動）
+  function syncCogs(source) {
+    const { drinkRev } = calcRev();
+    if (source === 'pct') {
+      const pct = +document.getElementById('cogs-pct').value;
+      document.getElementById('cogs-yen').value = Math.round(drinkRev * pct / 100);
+      document.getElementById('cogs-pct-range').value = pct;
+    } else if (source === 'yen') {
+      const yen = +document.getElementById('cogs-yen').value;
+      const pct = drinkRev > 0 ? pctFmt(yen / drinkRev * 100) : 0;
+      document.getElementById('cogs-pct').value = pct;
+      document.getElementById('cogs-pct-range').value = Math.round(pct);
+    } else {
+      const pct = +document.getElementById('cogs-pct-range').value;
+      document.getElementById('cogs-pct').value = pct;
+      document.getElementById('cogs-yen').value = Math.round(drinkRev * pct / 100);
+    }
+  }
+
+  // 固定費系（%は参考表示のみ・readonly）
+  function syncFixed(key, source) {
+    const { totalRev } = calcRev();
+    let yen;
+    if (source === 'yen') {
+      yen = +document.getElementById(key + '-yen').value;
+      document.getElementById(key + '-yen-range').value = Math.min(yen, +document.getElementById(key + '-yen-range').max);
+    } else {
+      yen = +document.getElementById(key + '-yen-range').value;
+      document.getElementById(key + '-yen').value = yen;
+    }
+    document.getElementById(key + '-pct').value = totalRev > 0 ? pctFmt(yen / totalRev * 100) : 0;
+  }
+
+  // 双方向連動（金額↔%）
+  function syncYenPct(key, source) {
+    const { totalRev } = calcRev();
+    const yenEl = document.getElementById(key + '-yen');
+    const pctEl = document.getElementById(key + '-pct');
+    const rangeEl = document.getElementById(key + '-yen-range');
+    if (source === 'yen') {
+      const yen = +yenEl.value;
+      pctEl.value = totalRev > 0 ? pctFmt(yen / totalRev * 100) : 0;
+      rangeEl.value = Math.min(yen, +rangeEl.max);
+    } else if (source === 'pct') {
+      const yen = Math.round(totalRev * +pctEl.value / 100);
+      yenEl.value = yen;
+      rangeEl.value = Math.min(yen, +rangeEl.max);
+    } else {
+      const yen = +rangeEl.value;
+      yenEl.value = yen;
+      pctEl.value = totalRev > 0 ? pctFmt(yen / totalRev * 100) : 0;
+    }
+  }
+
+  function profitClass(v) { return v >= 50000 ? 'good' : v >= 0 ? 'warn' : 'bad'; }
+
+  function drawChart(labels, values, colors) {
+    const svg = document.getElementById('bar-chart');
+    const W = 700, H = 280;
+    const padL = 52, padR = 12, padT = 20, padB = 40;
+    const chartW = W - padL - padR;
+    const chartH = H - padT - padB;
+    const n = values.length;
+    const barW = Math.max(Math.floor(chartW / n * 0.55), 14);
+    const barGap = chartW / n;
+    const maxV = Math.max(...values.map(Math.abs), 1);
+    const scale = chartH / 2 / maxV;
+    const zeroY = padT + chartH / 2;
+    const tickCount = 4;
+    const tickStep = Math.ceil(maxV / tickCount / 10000) * 10000 || 10000;
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
+    const textColor = isDark ? '#8a8880' : '#7a7870';
+    let html = '';
+    for (let i = -tickCount; i <= tickCount; i++) {
+      const val = i * tickStep;
+      const y = Math.round(zeroY - val * scale);
+      if (y < padT - 4 || y > padT + chartH + 4) continue;
+      html += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${gridColor}" stroke-width="0.5"/>`;
+      const label = val === 0 ? '0' : (val < 0 ? '-' : '') + Math.abs(val / 10000).toFixed(0) + '万';
+      html += `<text x="${padL - 6}" y="${y}" text-anchor="end" dominant-baseline="central" font-size="10" fill="${textColor}" font-family="sans-serif">${label}</text>`;
+    }
+    const zeroColor = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)';
+    html += `<line x1="${padL}" y1="${zeroY}" x2="${W - padR}" y2="${zeroY}" stroke="${zeroColor}" stroke-width="1"/>`;
+    values.forEach((val, i) => {
+      const cx = padL + barGap * i + barGap / 2;
+      const bx = cx - barW / 2;
+      const bh = Math.max(Math.abs(val) * scale, 2);
+      const by = val >= 0 ? zeroY - bh : zeroY;
+      html += `<rect x="${Math.round(bx)}" y="${Math.round(by)}" width="${barW}" height="${Math.round(bh)}" rx="3" fill="${colors[i]}"/>`;
+      // ラベル（短縮表示）
+      const fontSize = n > 10 ? 8 : 9;
+      const shortLabel = labels[i].length > 4 ? labels[i].slice(0, 4) : labels[i];
+      html += `<text x="${Math.round(cx)}" y="${H - padB + 14}" text-anchor="middle" font-size="${fontSize}" fill="${textColor}" font-family="sans-serif">${shortLabel}</text>`;
+      if (Math.abs(val) > 0) {
+        const labelY = val >= 0 ? Math.round(by) - 3 : Math.round(by + bh) + 11;
+        const shortVal = Math.abs(val) >= 10000 ? (Math.abs(val) / 10000).toFixed(0) + '万' : Math.abs(val).toLocaleString();
+        html += `<text x="${Math.round(cx)}" y="${labelY}" text-anchor="middle" font-size="8" fill="${textColor}" font-family="sans-serif">${shortVal}</text>`;
+      }
+    });
+    svg.innerHTML = html;
+  }
+
+  function render() {
+    const { drinkRev, retail, totalRev, weekdayDays, weekendDays, wdGuests, weGuests } = calcRev();
+    const cogs       = +document.getElementById('cogs-yen').value;
+    const labor      = +document.getElementById('labor-yen').value;
+    const rent       = +document.getElementById('rent-yen').value;
+    const insurance  = +document.getElementById('insurance-yen').value;
+    const lease      = +document.getElementById('lease-yen').value;
+    const depreciation = +document.getElementById('depreciation-yen').value;
+    const utility    = +document.getElementById('utility-yen').value;
+    const comm       = +document.getElementById('comm-yen').value;
+    const ad         = +document.getElementById('ad-yen').value;
+    const supplies   = +document.getElementById('supplies-yen').value;
+    const fee        = +document.getElementById('fee-yen').value;
+    const misc       = +document.getElementById('misc-yen').value;
+    const interest   = +document.getElementById('interest-yen').value;
+    const loan       = +document.getElementById('loan-yen').value;
+
+    const grossProfit = totalRev - cogs;
+    const fixedTotal = rent + insurance + lease + depreciation;
+    const varTotal = utility + comm + ad + supplies + fee + misc;
+    const sgaTotal = labor + fixedTotal + varTotal;
+    const opProfit = grossProfit - sgaTotal;
+    const netProfit = opProfit - interest - loan;
+    const grossMargin = totalRev > 0 ? Math.round(grossProfit / totalRev * 100) : 0;
+    const laborRatio = totalRev > 0 ? Math.round(labor / totalRev * 100) : 0;
+    const totalGuests = weekdayDays * wdGuests + weekendDays * weGuests;
+
+    // %連動更新
+    syncCogs('pct');
+    ['rent','insurance','lease','depreciation'].forEach(k => syncFixed(k, 'yen'));
+    ['labor','utility','comm','ad','supplies','fee','misc','interest','loan'].forEach(k => {
+      if (!document.getElementById(k + '-pct').readOnly) syncYenPct(k, 'yen');
+    });
+
+    document.getElementById('metrics').innerHTML = `
+      <div class="metric"><div class="metric-label">月間売上</div><div class="metric-val">¥${fmt(totalRev)}</div></div>
+      <div class="metric"><div class="metric-label">粗利益</div><div class="metric-val ${grossMargin >= 60 ? 'good' : 'warn'}">¥${fmt(grossProfit)}<span class="metric-sub">${grossMargin}%</span></div></div>
+      <div class="metric"><div class="metric-label">人件費率</div><div class="metric-val ${laborRatio <= 30 ? 'good' : laborRatio <= 40 ? 'warn' : 'bad'}">${laborRatio}%</div></div>
+      <div class="metric"><div class="metric-label">販管費合計</div><div class="metric-val">¥${fmt(sgaTotal)}</div></div>
+      <div class="metric"><div class="metric-label">営業利益</div><div class="metric-val ${profitClass(opProfit)}">¥${fmt(opProfit)}</div></div>
+      <div class="metric"><div class="metric-label">最終利益</div><div class="metric-val ${profitClass(netProfit)}">¥${fmt(netProfit)}</div></div>
+      <div class="metric"><div class="metric-label">月間来客数</div><div class="metric-val">${fmt(totalGuests)}<span class="metric-sub">人</span></div></div>
+      <div class="metric"><div class="metric-label">損益分岐売上</div><div class="metric-val">¥${fmt(grossMargin > 0 ? (sgaTotal + interest + loan) / (grossMargin / 100) : 0)}</div></div>
+    `;
+
+    const labels = ['飲食売上','物販','原価','人件費','地代家賃','保険・リース','減価償却','光熱費','通信','広告','消耗品','手数料','雑費','支払利息','借入返済'];
+    const values = [drinkRev, retail, -cogs, -labor, -rent, -(insurance+lease), -depreciation, -utility, -comm, -ad, -supplies, -fee, -misc, -interest, -loan];
+    const colors = ['#2d6a4f','#52b788','#c0392b','#8e44ad','#7a7870','#95a5a6','#bdc3c7','#b5631a','#d4a017','#e8c96a','#e07b54','#e67e22','#a0522d','#c0392b','#922b21'];
+    drawChart(labels, values, colors);
+  }
+
+  // シンプルスライダー
+  [['days','日'],['weekday-price','¥'],['weekend-price','¥'],['weekday-guests','人'],['weekend-guests','人'],['retail','¥']].forEach(([id, unit]) => {
+    document.getElementById(id).addEventListener('input', () => {
+      const v = +document.getElementById(id).value;
+      document.getElementById(id + '-out').textContent = unit === '¥' ? '¥' + v.toLocaleString('ja-JP') : v + unit;
+      render();
+    });
+  });
+
+  // 原価
+  document.getElementById('cogs-pct').addEventListener('input', () => { syncCogs('pct'); render(); });
+  document.getElementById('cogs-yen').addEventListener('input', () => { syncCogs('yen'); render(); });
+  document.getElementById('cogs-pct-range').addEventListener('input', () => { syncCogs('range'); render(); });
+
+  // 固定費系（%readonly）
+  ['rent','insurance','lease','depreciation'].forEach(key => {
+    document.getElementById(key + '-yen').addEventListener('input', () => { syncFixed(key, 'yen'); render(); });
+    document.getElementById(key + '-yen-range').addEventListener('input', () => { syncFixed(key, 'range'); render(); });
+  });
+
+  // 双方向連動
+  ['labor','utility','comm','ad','supplies','fee','misc','interest','loan'].forEach(key => {
+    document.getElementById(key + '-yen').addEventListener('input', () => { syncYenPct(key, 'yen'); render(); });
+    document.getElementById(key + '-yen-range').addEventListener('input', () => { syncYenPct(key, 'range'); render(); });
+    const pctEl = document.getElementById(key + '-pct');
+    if (pctEl && !pctEl.readOnly) {
+      pctEl.addEventListener('input', () => { syncYenPct(key, 'pct'); render(); });
+    }
+  });
+
+  // 保存・復元
+  const SAVE_KEYS = [
+    'days','weekday-price','weekend-price','weekday-guests','weekend-guests','retail',
+    'cogs-pct',
+    'labor-yen','rent-yen','insurance-yen','lease-yen','depreciation-yen',
+    'utility-yen','comm-yen','ad-yen','supplies-yen','fee-yen','misc-yen',
+    'interest-yen','loan-yen'
+  ];
+
+  function saveState() {
+    const data = {};
+    SAVE_KEYS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) data[id] = el.value;
+    });
+    try { localStorage.setItem('primus-sim', JSON.stringify(data)); } catch(e) {}
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem('primus-sim');
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      SAVE_KEYS.forEach(id => {
+        if (data[id] === undefined) return;
+        const el = document.getElementById(id);
+        if (el) el.value = data[id];
+        // スライダーも同期
+        const range = document.getElementById(id + '-range') || document.getElementById(id.replace('-pct','-pct-range'));
+        if (range) range.value = data[id];
+      });
+      // シンプルスライダーのラベル更新
+      [['days','日'],['weekday-price','¥'],['weekend-price','¥'],['weekday-guests','人'],['weekend-guests','人'],['retail','¥']].forEach(([id, unit]) => {
+        const v = +document.getElementById(id).value;
+        document.getElementById(id + '-out').textContent = unit === '¥' ? '¥' + v.toLocaleString('ja-JP') : v + unit;
+      });
+    } catch(e) {}
+  }
+
+  // 全イベントに保存を追加
+  document.querySelectorAll('input').forEach(el => {
+    el.addEventListener('input', saveState);
+  });
+
+  loadState();
+  render();
+</script>
+</body>
+</html>
